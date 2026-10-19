@@ -5,8 +5,9 @@ import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.HandlerThread
 import android.view.MotionEvent
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.graphics.SurfaceTexture
+import android.view.TextureView
+import android.view.Surface
 import com.example.parallaxwallpaper.depth.DepthEstimator
 import com.example.parallaxwallpaper.sensor.GyroscopeSmoother
 import com.example.parallaxwallpaper.wallpaper.ParallaxEngine
@@ -14,7 +15,7 @@ import java.util.concurrent.Executors
 
 /** EGL uploads, drawing and destruction share one dedicated thread. */
 class PhotoPreviewView(context: Context, private val photo: PhotoEntry,
-                       private val onError: (String) -> Unit) : SurfaceView(context), SurfaceHolder.Callback {
+                       private val onError: (String) -> Unit) : TextureView(context), TextureView.SurfaceTextureListener {
     private val thread = HandlerThread("AlbumPreview").apply { start() }
     private val handler = Handler(thread.looper)
     private val loader = Executors.newSingleThreadExecutor()
@@ -29,7 +30,8 @@ class PhotoPreviewView(context: Context, private val photo: PhotoEntry,
     private var originX = 0f
     private var originY = 0f
     private var generation = 0
-    init { holder.addCallback(this) }
+    private var windowSurface: Surface? = null
+    init { surfaceTextureListener = this }
     private val frame = object : Runnable {
         override fun run() {
             if (!ready || !active || released) return
@@ -38,13 +40,14 @@ class PhotoPreviewView(context: Context, private val photo: PhotoEntry,
             handler.postDelayed(this, 16)
         }
     }
-    override fun surfaceCreated(holder: SurfaceHolder) = Unit
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+    override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
         if (released) return
         handler.post {
             if (ready) { renderer.onSurfaceChanged(width, height); return@post }
             try {
-                renderer.init(holder.surface, width, height)
+                val surface = Surface(texture)
+                windowSurface = surface
+                renderer.init(surface, width, height)
                 ready = true
                 val token = ++generation
                 loader.execute {
@@ -69,13 +72,25 @@ class PhotoPreviewView(context: Context, private val photo: PhotoEntry,
             } catch (_: Exception) { post { onError("当前设备无法创建立体预览") } }
         }
     }
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
+    override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
+        handler.post {
+            if (ready) {
+                renderer.onSurfaceChanged(width, height)
+                handler.removeCallbacks(frame)
+                if (active) handler.post(frame)
+            }
+        }
+    }
+    override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+    override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
         val done = java.util.concurrent.CountDownLatch(1)
         handler.post {
-            try { generation++; handler.removeCallbacks(frame); if (ready) renderer.release(); ready = false }
+            try { generation++; handler.removeCallbacks(frame); if (ready) renderer.release(); ready = false
+                windowSurface?.release(); windowSurface = null }
             finally { done.countDown() }
         }
         done.await(2, java.util.concurrent.TimeUnit.SECONDS)
+        return true
     }
     fun setStrength(value: Float) { if (!released) handler.post { renderer.parallaxStrength = value } }
     fun setActive(value: Boolean) {
@@ -113,12 +128,13 @@ class PhotoPreviewView(context: Context, private val photo: PhotoEntry,
         if (released) return
         released = true
         gyro.stop()
-        holder.removeCallback(this)
+        surfaceTextureListener = null
         loader.shutdown()
         handler.post {
             handler.removeCallbacks(frame)
             if (ready) renderer.release()
             ready = false
+            windowSurface?.release(); windowSurface = null
             thread.quitSafely()
         }
     }
