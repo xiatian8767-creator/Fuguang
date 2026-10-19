@@ -63,7 +63,9 @@ class AlbumSmokeTest {
         device.takeScreenshot(File(screenshots, "03-immersive.png"))
         device.findObject(By.text("显示操作")).click()
         device.pressHome()
-        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        // Reopen through the launcher/shell, just as a user would. Android 10 blocks
+        // background apps calling startActivity themselves after pressing Home.
+        device.executeShellCommand("am start -f 0x10200000 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n com.example.parallaxwallpaper/.MainActivity")
         assertTrue(device.wait(Until.hasObject(By.text("设为动态壁纸")), 10000))
         device.pressBack()
         assertTrue(device.wait(Until.hasObject(By.text("我的相册")), 5000))
