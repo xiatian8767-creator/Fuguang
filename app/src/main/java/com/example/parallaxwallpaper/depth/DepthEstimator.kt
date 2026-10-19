@@ -19,7 +19,7 @@ import java.nio.FloatBuffer
  *   Input  shape : [1, 3, INPUT_SIZE, INPUT_SIZE]  float32  values in [0, 1]
  *   Input  layout: NCHW – all-R plane, all-G plane, all-B plane
  *   Output name  : "depth"
- *   Output shape : [1, INPUT_SIZE, INPUT_SIZE]  float32  (larger = farther)
+ *   Output shape : [1, INPUT_SIZE, INPUT_SIZE]  float32  (larger = nearer)
  */
 class DepthEstimator(
     context: Context,
@@ -51,13 +51,13 @@ class DepthEstimator(
                 try { addNnapi() } catch (_: Exception) { /* not available – fall back to CPU */ }
             }
         }
-        val modelBytes = context.assets.open(MODEL_ASSET).readBytes()
-        session = env.createSession(modelBytes, opts)
+        val modelBytes = context.assets.open(MODEL_ASSET).use { it.readBytes() }
+        session = try { env.createSession(modelBytes, opts) } finally { opts.close() }
     }
 
     /**
      * Returns a normalized FloatArray [INPUT_SIZE * INPUT_SIZE] where
-     * 0.0 = closest pixel, 1.0 = farthest pixel.
+     * 0.0 = farthest pixel, 1.0 = closest pixel.
      * NOT thread-safe – call from a single background thread.
      */
     fun estimate(bitmap: Bitmap): FloatArray {
@@ -75,7 +75,7 @@ class DepthEstimator(
             val results = session.run(mapOf("image" to inputTensor))
             results.use {
                 val depthTensor = results["depth"].get() as OnnxTensor
-                depthTensor.use {
+                run {
                     // Output shape [1, H, W] → batch dimension stripped
                     val raw = depthTensor.value as Array<Array<FloatArray>>
                     var idx = 0
@@ -119,6 +119,6 @@ class DepthEstimator(
 
     override fun close() {
         session.close()
-        env.close()
+        // OrtEnvironment is process-wide and may be shared by another session.
     }
 }

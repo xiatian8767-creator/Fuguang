@@ -1,7 +1,5 @@
 package com.example.parallaxwallpaper.wallpaper
 
-import android.app.WallpaperManager
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.HandlerThread
@@ -12,154 +10,124 @@ import com.example.parallaxwallpaper.data.WallpaperPreferences
 import com.example.parallaxwallpaper.depth.DepthEstimator
 import com.example.parallaxwallpaper.sensor.GyroscopeSmoother
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.*
+import java.io.DataInputStream
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class ParallaxWallpaperService : WallpaperService() {
-
-    override fun onCreateEngine(): Engine = ParallaxEngine()
-
-    inner class ParallaxEngine : Engine() {
-
-        private val TAG = "ParallaxWallpaperEngine"
-
-        // Dedicated render thread – every GL call must happen here
-        private val renderThread = HandlerThread("ParallaxRender").apply { start() }
-        private val renderHandler = Handler(renderThread.looper)
-
-        private val glEngine = com.example.parallaxwallpaper.wallpaper.ParallaxEngine()
-        private val gyro by lazy { GyroscopeSmoother(this@ParallaxWallpaperService) }
-        private val prefs by lazy { WallpaperPreferences(this@ParallaxWallpaperService) }
-
-        // Created lazily with the NNAPI flag loaded from prefs
-        private var depthEstimator: DepthEstimator? = null
-
-        private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
-        private var surfaceReady = false
-        private var frameScheduled = false
+    override fun onCreateEngine(): Engine = WallpaperEngine()
+    inner class WallpaperEngine : Engine() {
+        private val renderThread = HandlerThread("WallpaperRender").apply { start() }
+        private val handler = Handler(renderThread.looper)
+        private val renderer = ParallaxEngine()
+        private val gyro = GyroscopeSmoother(this@ParallaxWallpaperService)
+        private val prefs = WallpaperPreferences(this@ParallaxWallpaperService)
+        private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        private val surfaceState = MutableStateFlow(false)
+        private val generation = AtomicInteger(0)
+        private var ready = false
+        private var visible = false
+        private var destroyed = false
         private var targetFps = 60
-        private val frameDurationMs get() = 1000L / targetFps
-
-        // ── Surface callbacks ──────────────────────────────────────────────
-
-        override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
-            super.onSurfaceChanged(holder, format, w, h)
-            renderHandler.post {
-                if (!surfaceReady) {
-                    glEngine.init(holder.surface, w, h)
-                    surfaceReady = true
-                    loadWallpaperAsync()
-                } else {
-                    glEngine.onSurfaceChanged(w, h)
-                }
+        private val frame = object : Runnable {
+            override fun run() {
+                if (!ready || !visible || destroyed) return
+                val tilt = gyro.currentTilt
+                renderer.draw(tilt.y, -tilt.x)
+                handler.postDelayed(this, 1000L / targetFps)
             }
         }
-
-        override fun onSurfaceDestroyed(holder: SurfaceHolder) {
-            super.onSurfaceDestroyed(holder)
-            surfaceReady = false
-            frameScheduled = false
-            renderHandler.post { glEngine.release() }
-        }
-
-        // ── Visibility ─────────────────────────────────────────────────────
-
-        override fun onVisibilityChanged(visible: Boolean) {
-            super.onVisibilityChanged(visible)
-            if (visible) {
-                gyro.start()
-                scheduleFrame()
-            } else {
-                gyro.stop()
-                renderHandler.removeCallbacksAndMessages(null)
-                frameScheduled = false
-            }
-        }
-
-        // ── Image + depth loading ──────────────────────────────────────────
-
-        private fun loadWallpaperAsync() {
-            serviceScope.launch {
-                val settings = prefs.settingsFlow.first()
-                targetFps = settings.targetFps
-                glEngine.parallaxStrength = settings.parallaxStrength
-
-                val bitmap = loadSourceBitmap(settings.imagePath) ?: return@launch
-
-                // Upload raw image immediately so the wallpaper shows something
-                renderHandler.post { glEngine.uploadImage(bitmap) }
-
-                if (!DepthEstimator.isModelPresent(this@ParallaxWallpaperService)) {
-                    Log.w(TAG, "ONNX model not found – depth map unavailable")
-                    bitmap.recycle()
-                    return@launch
-                }
-
-                // Build estimator on the fly (respects current NNAPI setting)
-                depthEstimator?.close()
-                depthEstimator = DepthEstimator(
-                    this@ParallaxWallpaperService,
-                    useNnapi = settings.useNnapi
-                )
-
-                val depth = depthEstimator!!.estimate(bitmap)
-                renderHandler.post {
-                    glEngine.uploadDepth(depth, DepthEstimator.INPUT_SIZE, DepthEstimator.INPUT_SIZE)
-                    bitmap.recycle()
-                }
-            }
-        }
-
-        private fun loadSourceBitmap(path: String?): Bitmap? {
-            if (!path.isNullOrEmpty()) {
-                try { return BitmapFactory.decodeFile(path) }
-                catch (e: Exception) { Log.e(TAG, "Cannot load $path", e) }
-            }
-            return try {
-                val wm = WallpaperManager.getInstance(this@ParallaxWallpaperService)
-                wm.drawable?.let {
-                    val bmp = Bitmap.createBitmap(
-                        it.intrinsicWidth.coerceAtLeast(1080),
-                        it.intrinsicHeight.coerceAtLeast(1920),
-                        Bitmap.Config.ARGB_8888
-                    )
-                    android.graphics.Canvas(bmp).also { c ->
-                        it.setBounds(0, 0, bmp.width, bmp.height)
-                        it.draw(c)
+        init {
+            scope.launch {
+                combine(prefs.settingsFlow, surfaceState) { settings, surface -> settings to surface }
+                    .collectLatest { (settings, surface) ->
+                        if (!surface) return@collectLatest
+                        val token = generation.incrementAndGet()
+                        val path = settings.imagePath ?: return@collectLatest
+                        val bitmap = BitmapFactory.decodeFile(path) ?: return@collectLatest
+                        try {
+                            handler.post {
+                                if (ready && generation.get() == token && !destroyed) {
+                                    targetFps = settings.targetFps.coerceIn(30, 90)
+                                    renderer.parallaxStrength = settings.parallaxStrength.coerceAtMost(0.035f)
+                                }
+                            }
+                            val cached = File(File(path).parentFile, "depth.bin")
+                            val depth = if (cached.isFile) {
+                                DataInputStream(cached.inputStream().buffered()).use { input ->
+                                    require(input.readInt() == DepthEstimator.INPUT_SIZE)
+                                    require(input.readInt() == DepthEstimator.INPUT_SIZE)
+                                    FloatArray(DepthEstimator.INPUT_SIZE * DepthEstimator.INPUT_SIZE) { input.readFloat() }
+                                }
+                            } else {
+                                DepthEstimator(this@ParallaxWallpaperService, settings.useNnapi).use { it.estimate(bitmap).copyOf() }
+                            }
+                            currentCoroutineContext().ensureActive()
+                            // Publish image + depth together; never render a new image with stale depth.
+                            val accepted = handler.post {
+                                try {
+                                    if (ready && generation.get() == token && !destroyed) {
+                                        renderer.uploadImage(bitmap)
+                                        renderer.uploadDepth(depth, DepthEstimator.INPUT_SIZE, DepthEstimator.INPUT_SIZE)
+                                        gyro.reset()
+                                        handler.removeCallbacks(frame)
+                                        if (visible) handler.post(frame)
+                                    }
+                                } finally { bitmap.recycle() }
+                            }
+                            if (!accepted) bitmap.recycle()
+                        } catch (e: CancellationException) { bitmap.recycle(); throw e }
+                        catch (e: Exception) { bitmap.recycle(); Log.e("FloatingPhoto", "Wallpaper loading failed", e) }
                     }
-                    bmp
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Cannot load system wallpaper drawable", e)
-                null
             }
         }
-
-        // ── Render loop ────────────────────────────────────────────────────
-
-        private fun scheduleFrame() {
-            if (!frameScheduled) {
-                frameScheduled = true
-                renderHandler.postDelayed(::renderFrame, frameDurationMs)
+        override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            super.onSurfaceChanged(holder, format, width, height)
+            handler.post {
+                if (!ready) {
+                    renderer.init(holder.surface, width, height)
+                    ready = true
+                    surfaceState.value = true
+                } else renderer.onSurfaceChanged(width, height)
+                handler.removeCallbacks(frame)
+                if (visible) handler.post(frame)
             }
         }
-
-        private fun renderFrame() {
-            frameScheduled = false
-            if (!surfaceReady || !isVisible) return
-            val tilt = gyro.currentTilt
-            glEngine.draw(tilt.x, tilt.y)
-            scheduleFrame()
+        override fun onVisibilityChanged(value: Boolean) {
+            super.onVisibilityChanged(value)
+            if (value) { gyro.reset(); gyro.start() } else gyro.stop()
+            handler.post {
+                visible = value
+                handler.removeCallbacks(frame)
+                if (visible && ready) handler.post(frame)
+            }
         }
-
-        // ── Cleanup ────────────────────────────────────────────────────────
-
+        override fun onSurfaceDestroyed(holder: SurfaceHolder) {
+            surfaceState.value = false
+            generation.incrementAndGet()
+            val done = CountDownLatch(1)
+            handler.post {
+                try { handler.removeCallbacks(frame); if (ready) renderer.release(); ready = false }
+                finally { done.countDown() }
+            }
+            done.await(2, TimeUnit.SECONDS)
+            super.onSurfaceDestroyed(holder)
+        }
         override fun onDestroy() {
-            super.onDestroy()
-            serviceScope.cancel()
+            scope.cancel()
             gyro.stop()
-            renderThread.quitSafely()
-            depthEstimator?.close()
+            generation.incrementAndGet()
+            handler.post {
+                destroyed = true
+                handler.removeCallbacks(frame)
+                if (ready) renderer.release()
+                ready = false
+                renderThread.quitSafely()
+            }
+            super.onDestroy()
         }
     }
 }

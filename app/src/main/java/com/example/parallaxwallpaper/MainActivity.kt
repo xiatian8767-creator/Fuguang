@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            ParallaxWallpaperTheme(darkTheme = true, dynamicColor = false) {
+            ParallaxWallpaperTheme(darkTheme = false, dynamicColor = false) {
                 SetupScreen(
                     modifier = Modifier
                         .fillMaxSize()

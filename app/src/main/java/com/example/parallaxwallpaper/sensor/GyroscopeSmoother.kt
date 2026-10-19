@@ -50,12 +50,14 @@ class GyroscopeSmoother(
     val tiltFlow: SharedFlow<TiltOffset> = _tiltFlow.asSharedFlow()
 
     /** Current snapshot without collecting the flow. */
-    var currentTilt = TiltOffset(0f, 0f)
+    @Volatile var currentTilt = TiltOffset(0f, 0f)
         private set
 
     val isAvailable: Boolean get() = gyro != null
 
     fun start(samplingUs: Int = SensorManager.SENSOR_DELAY_GAME) {
+        sensorManager.unregisterListener(this)
+        reset()
         gyro?.let { sensorManager.registerListener(this, it, samplingUs) }
         lastTimestamp = 0L
     }

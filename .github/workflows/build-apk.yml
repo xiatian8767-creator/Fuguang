@@ -23,6 +23,10 @@ jobs:
           test -n "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: fuguang-debug-signing-v1
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
@@ -30,8 +34,37 @@ jobs:
         run: |
           bash scripts/download_model.sh
           test $(wc -c < app/src/main/assets/depthanythingv2-vits-dynamic-quant.onnx) -gt 1000000
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+      - name: Verify GLES rendering regressions
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-dev
+          python3 scripts/test_gl_render.py
+      - name: Build debug APK and device tests
+        run: gradle --no-daemon assembleDebug assembleDebugAndroidTest lintDebug
+      - name: Enable emulator acceleration
+        run: sudo chmod 666 /dev/kvm
+      - name: Verify album on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 2048M
+          heap-size: 512M
+          disable-animations: true
+          script: |
+            gradle --no-daemon connectedDebugAndroidTest
+            adb pull /sdcard/Android/data/com.example.parallaxwallpaper/files app/build/device-screenshots
+      - name: Upload device verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-test-results
+          path: |
+            app/build/device-screenshots/
+            app/build/reports/androidTests/
+            app/build/reports/lint-results-debug.html
+
       - uses: actions/upload-artifact@v4
         with:
           name: ParallaxWallpaper-debug-apk
@@ -41,6 +74,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk ParallaxWallpaper-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk Fuguang-3D-Album.apk
           TAG="apk-${{ github.run_number }}"
-          gh release create "$TAG" ParallaxWallpaper-debug.apk --title "ParallaxWallpaper APK #${{ github.run_number }}" --notes "Debug APK with bundled verified depth model. Android 8.1 or newer." --target "${{ github.sha }}"
+          gh release create "$TAG" Fuguang-3D-Album.apk --title "浮光 3D 相册 2.0 · #${{ github.run_number }}" --notes "中文立体相册：离线导入、缓存深度、沉浸查看、手势与陀螺仪预览、动态壁纸。修复深度图行对齐割裂与画面倒置。Android 8.1 及以上。" --target "${{ github.sha }}"

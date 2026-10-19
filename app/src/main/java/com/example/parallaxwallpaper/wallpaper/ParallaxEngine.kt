@@ -40,7 +40,10 @@ class ParallaxEngine {
     private var uDepthTexture = 0
     private var uParallaxOffset = 0
     private var uParallaxStrength = 0
-    private var uAspectRatio = 0
+    private var uDepthTexel = 0
+    private var imageWidth = 1
+    private var imageHeight = 1
+    var fitImage = false
 
     // ── State ──────────────────────────────────────────────────────────────
     private var surfaceWidth = 1
@@ -74,21 +77,24 @@ class ParallaxEngine {
          * (1 - depth) * parallaxOffset * strength so near pixels shift more.
          */
         private val FRAGMENT_SHADER = """
-            precision mediump float;
+            precision highp float;
             uniform sampler2D uImageTexture;
             uniform sampler2D uDepthTexture;
-            uniform vec2      uParallaxOffset;
-            uniform float     uParallaxStrength;
-            varying vec2      vTexCoord;
-
+            uniform vec2 uParallaxOffset;
+            uniform float uParallaxStrength;
+            uniform vec2 uDepthTexel;
+            varying vec2 vTexCoord;
             void main() {
-                float depth   = texture2D(uDepthTexture, vTexCoord).r;
-                // Near objects (low depth) shift the most
-                float layer   = 1.0 - depth;
-                vec2  shifted = vTexCoord + layer * uParallaxOffset * uParallaxStrength;
-                // Mirror-clamp to avoid black borders at edges
-                shifted = abs(mod(shifted, 2.0) - 1.0);
-                gl_FragColor  = texture2D(uImageTexture, shifted);
+                // A small overscan leaves room for movement without mirrored borders.
+                vec2 uv = (vTexCoord - 0.5) / 1.08 + 0.5;
+                float d = texture2D(uDepthTexture, uv).r * 0.4;
+                d += texture2D(uDepthTexture, uv + vec2(uDepthTexel.x, 0.0)).r * 0.15;
+                d += texture2D(uDepthTexture, uv - vec2(uDepthTexel.x, 0.0)).r * 0.15;
+                d += texture2D(uDepthTexture, uv + vec2(0.0, uDepthTexel.y)).r * 0.15;
+                d += texture2D(uDepthTexture, uv - vec2(0.0, uDepthTexel.y)).r * 0.15;
+                // Depth Anything predicts inverse depth: larger values are nearer.
+                vec2 shifted = uv + (d - 0.5) * uParallaxOffset * uParallaxStrength;
+                gl_FragColor = texture2D(uImageTexture, clamp(shifted, 0.001, 0.999));
             }
         """.trimIndent()
     }
@@ -131,9 +137,12 @@ class ParallaxEngine {
 
     /** Upload source wallpaper image. Safe to call from the render thread. */
     fun uploadImage(bitmap: Bitmap) {
+        imageWidth = bitmap.width
+        imageHeight = bitmap.height
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[0])
         android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-        GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
+
     }
 
     /**
@@ -141,16 +150,24 @@ class ParallaxEngine {
      * [depth] is a FloatArray of size [w * h] normalized to [0, 1].
      */
     fun uploadDepth(depth: FloatArray, w: Int, h: Int) {
+        require(w > 0 && h > 0 && depth.size == w * h)
         val buf = ByteBuffer.allocateDirect(w * h).apply {
             for (v in depth) put((v * 255f).toInt().coerceIn(0, 255).toByte())
             rewind()
         }
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[1])
+        // 518-byte rows are NOT divisible by the default alignment of four.
+        // Without this, every row starts two bytes too late: diagonal tearing.
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
         GLES20.glTexImage2D(
             GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE,
             w, h, 0, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, buf
         )
-        GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 4)
+        GLES20.glUseProgram(program)
+        GLES20.glUniform2f(uDepthTexel, 1f / w, 1f / h)
+
     }
 
     // ── Render ─────────────────────────────────────────────────────────────
@@ -163,6 +180,18 @@ class ParallaxEngine {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         GLES20.glUseProgram(program)
 
+        val imageAspect = imageWidth.toFloat() / imageHeight
+        val surfaceAspect = surfaceWidth.toFloat() / surfaceHeight
+        val vw: Int
+        val vh: Int
+        if ((imageAspect > surfaceAspect) == fitImage) {
+            vw = surfaceWidth
+            vh = (vw / imageAspect).toInt().coerceAtLeast(1)
+        } else {
+            vh = surfaceHeight
+            vw = (vh * imageAspect).toInt().coerceAtLeast(1)
+        }
+        GLES20.glViewport((surfaceWidth - vw) / 2, (surfaceHeight - vh) / 2, vw, vh)
         // Bind textures
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[0])
@@ -173,8 +202,8 @@ class ParallaxEngine {
         GLES20.glUniform1i(uDepthTexture, 1)
 
         // Uniforms
-        GLES20.glUniform2f(uParallaxOffset, tiltX, tiltY)
-        GLES20.glUniform1f(uParallaxStrength, parallaxStrength)
+        GLES20.glUniform2f(uParallaxOffset, tiltX.coerceIn(-1f, 1f), tiltY.coerceIn(-1f, 1f))
+        GLES20.glUniform1f(uParallaxStrength, parallaxStrength.coerceIn(0f, 0.035f))
 
         // Quad
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, quadVbo)
@@ -238,6 +267,7 @@ class ParallaxEngine {
         GLES20.glDeleteShader(vs)
         GLES20.glDeleteShader(fs)
 
+        uDepthTexel = GLES20.glGetUniformLocation(program, "uDepthTexel")
         uImageTexture   = GLES20.glGetUniformLocation(program, "uImageTexture")
         uDepthTexture   = GLES20.glGetUniformLocation(program, "uDepthTexture")
         uParallaxOffset = GLES20.glGetUniformLocation(program, "uParallaxOffset")
@@ -259,13 +289,15 @@ class ParallaxEngine {
 
     private fun setupTextures() {
         GLES20.glGenTextures(2, textures, 0)
-        for (tex in textures) {
+        for ((index, tex) in textures.withIndex()) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + index)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR_MIPMAP_LINEAR)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
         }
+        uploadDepth(floatArrayOf(0.5f), 1, 1)
     }
 
     private fun compileShader(type: Int, src: String): Int {
