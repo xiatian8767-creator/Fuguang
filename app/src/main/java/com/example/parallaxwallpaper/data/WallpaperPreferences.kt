@@ -15,7 +15,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore("w
 
 data class WallpaperSettings(
     val imagePath: String?   = null,
-    val parallaxStrength: Float = 0.04f,
+    val parallaxStrength: Float = 0.018f,
     val targetFps: Int       = 60,
     val useNnapi: Boolean    = false,   // hardware-accelerated ONNX inference via NNAPI
 )
@@ -32,7 +32,7 @@ class WallpaperPreferences(private val context: Context) {
     val settingsFlow: Flow<WallpaperSettings> = context.dataStore.data.map { prefs ->
         WallpaperSettings(
             imagePath        = prefs[KEY_IMAGE_PATH],
-            parallaxStrength = prefs[KEY_PARALLAX_STRENGTH] ?: 0.04f,
+            parallaxStrength = prefs[KEY_PARALLAX_STRENGTH] ?: 0.018f,
             targetFps        = prefs[KEY_TARGET_FPS] ?: 60,
             useNnapi         = (prefs[KEY_USE_NNAPI] ?: 0) != 0,
         )

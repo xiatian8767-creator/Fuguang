@@ -20,7 +20,7 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class AlbumSmokeTest {
-    @Test fun importRotatedPhotoPersistAndPreviewBeyondFiveSeconds() = runBlocking {
+    @Test fun importRotatedPhotoPersistAndPreviewBeyondFiveSeconds(): Unit = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val source = File(context.cacheDir, "orientation-test.jpg")
@@ -69,5 +69,6 @@ class AlbumSmokeTest {
         assertTrue(device.wait(Until.hasObject(By.text("我的相册")), 5000))
         assertEquals("立体预览测试", PhotoStore(context).list().first().title)
         source.delete()
+        Unit
     }
 }

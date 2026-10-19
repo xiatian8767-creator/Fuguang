@@ -48,7 +48,7 @@ class ParallaxEngine {
     // ── State ──────────────────────────────────────────────────────────────
     private var surfaceWidth = 1
     private var surfaceHeight = 1
-    var parallaxStrength: Float = 0.04f   // tuneable
+    var parallaxStrength: Float = 0.018f   // tuneable
 
     companion object {
         private const val TAG = "ParallaxEngine"
@@ -74,7 +74,7 @@ class ParallaxEngine {
 
         /**
          * Fragment shader: samples depth at current UV, offsets image UV by
-         * (1 - depth) * parallaxOffset * strength so near pixels shift more.
+         * inverse depth * parallaxOffset * strength, with a small overscan.
          */
         private val FRAGMENT_SHADER = """
             precision highp float;

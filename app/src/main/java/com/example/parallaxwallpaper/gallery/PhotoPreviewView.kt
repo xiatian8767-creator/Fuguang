@@ -52,7 +52,7 @@ class PhotoPreviewView(context: Context, private val photo: PhotoEntry,
                         val bitmap = BitmapFactory.decodeFile(photo.imagePath) ?: error("照片读取失败")
                         try {
                             val depth = PhotoStore(context).readDepth(photo)
-                            handler.post {
+                            val accepted = handler.post {
                                 try {
                                     if (ready && generation == token && !released) {
                                         renderer.uploadImage(bitmap)
@@ -62,6 +62,7 @@ class PhotoPreviewView(context: Context, private val photo: PhotoEntry,
                                     }
                                 } finally { bitmap.recycle() }
                             }
+                            if (!accepted) bitmap.recycle()
                         } catch (e: Exception) { bitmap.recycle(); throw e }
                     } catch (_: Exception) { post { if (!released) onError("预览读取失败，请重新导入照片") } }
                 }

@@ -43,7 +43,7 @@ class PhotoStore(private val context: Context) {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 source.outputStream().use { input.copyTo(it) }
             } ?: error("无法读取这张照片，请重新选择")
-            val bitmap = decodeOriented(source)
+            val bitmap = decodeSource(source)
             try {
                 File(dir, "photo.jpg").outputStream().use {
                     check(bitmap.compress(Bitmap.CompressFormat.JPEG, 94, it)) { "照片保存失败" }
@@ -89,7 +89,7 @@ class PhotoStore(private val context: Context) {
         check(temp.renameTo(File(dir, "photo.json"))) { "无法保存照片信息" }
     }
 
-    private fun decodeOriented(source: File): Bitmap {
+    fun decodeSource(source: File): Bitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(source.absolutePath, bounds)
         require(bounds.outWidth > 0 && bounds.outHeight > 0) { "暂不支持这种图片格式" }

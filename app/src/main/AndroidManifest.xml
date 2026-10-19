@@ -1,11 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.BIND_WALLPAPER" />
     <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
     <uses-feature android:name="android.hardware.opengles.aep" android:required="false" />
 
-    <uses-sdk android:minSdkVersion="26" />
 
     <application
         android:allowBackup="true"

@@ -1,6 +1,6 @@
 package com.example.parallaxwallpaper.wallpaper
 
-import android.graphics.BitmapFactory
+import com.example.parallaxwallpaper.gallery.PhotoStore
 import android.os.Handler
 import android.os.HandlerThread
 import android.service.wallpaper.WallpaperService
@@ -47,7 +47,8 @@ class ParallaxWallpaperService : WallpaperService() {
                         if (!surface) return@collectLatest
                         val token = generation.incrementAndGet()
                         val path = settings.imagePath ?: return@collectLatest
-                        val bitmap = BitmapFactory.decodeFile(path) ?: return@collectLatest
+                        val bitmap = try { PhotoStore(this@ParallaxWallpaperService).decodeSource(File(path)) }
+                            catch (e: Exception) { Log.e("FloatingPhoto", "Cannot decode wallpaper", e); return@collectLatest }
                         try {
                             handler.post {
                                 if (ready && generation.get() == token && !destroyed) {
