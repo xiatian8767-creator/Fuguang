@@ -43,7 +43,7 @@ class AlbumSmokeTest {
         assertEquals(entry.id, PhotoStore(context).list().first().id)
         val named = entry.copy(title = "立体预览测试")
         store.writeMeta(named)
-        context.startActivity(Intent.makeMainActivity(android.content.ComponentName(context, MainActivity::class.java)))
+        context.startActivity(Intent.makeMainActivity(android.content.ComponentName(context, MainActivity::class.java)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         val device = UiDevice.getInstance(instrumentation)
         assertTrue(device.wait(Until.hasObject(By.text("浮光")), 20000))
         assertTrue(device.wait(Until.hasObject(By.text("立体预览测试")), 10000))
