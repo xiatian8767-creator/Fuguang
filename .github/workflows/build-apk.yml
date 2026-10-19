@@ -52,9 +52,7 @@ jobs:
           ram-size: 2048M
           heap-size: 512M
           disable-animations: true
-          script: |
-            gradle --no-daemon connectedDebugAndroidTest
-            adb pull /sdcard/Android/data/com.example.parallaxwallpaper/files app/build/device-screenshots
+          script: python3 scripts/run_device_checks.py
       - name: Upload device verification
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,6 +60,7 @@ jobs:
           name: device-test-results
           path: |
             app/build/device-screenshots/
+            app/build/device-test.log
             app/build/reports/androidTests/
             app/build/reports/lint-results-debug.html
 
