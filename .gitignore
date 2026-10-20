@@ -1,5 +1,16 @@
 *.iml
 .gradle/
+.venv/
+.local/
+.env
+backend/data/
+__pycache__/
+*.sqlite3*
+downloads/
+qa/output/
+signing/
+private/
+app/src/main/assets/*.onnx
 local.properties
 .idea/
 .DS_Store

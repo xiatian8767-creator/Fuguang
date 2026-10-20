@@ -12,7 +12,7 @@ $destDir = Join-Path $PSScriptRoot "..\app\src\main\assets"
 $dest    = Join-Path $destDir $model
 
 # GitHub raw / LFS media URL for the tiefling repo
-$url = "https://media.githubusercontent.com/media/combatwombat/tiefling/main/site/public/models/$model"
+$url = "https://raw.githubusercontent.com/combatwombat/tiefling/main/site/public/models/$model"
 
 Write-Host "Destination : $dest"
 Write-Host "Source URL  : $url"

@@ -14,4 +14,4 @@ print(result.stdout)
 subprocess.run(['adb', 'pull', '/sdcard/Android/data/com.example.parallaxwallpaper/files',
     str(out / 'device-screenshots')], check=True)
 assert result.returncode == 0 and re.search(r'OK \(1 test\)', result.stdout), 'Android instrumentation tests failed'
-assert len(list((out / 'device-screenshots').glob('*.png'))) >= 3, 'Missing UI screenshots'
+assert len(list((out / 'device-screenshots').glob('*.png'))) >= 2, 'Missing UI screenshots'

@@ -1,0 +1,3 @@
+const scene=document.querySelector('.scene');
+if(!matchMedia('(prefers-reduced-motion: reduce)').matches){scene.parentElement.addEventListener('pointermove',e=>{const r=e.currentTarget.getBoundingClientRect();scene.style.transform=`rotateY(${(e.clientX-r.left-r.width/2)/22}deg) rotateX(${-(e.clientY-r.top-r.height/2)/30}deg)`});scene.parentElement.addEventListener('pointerleave',()=>scene.style.transform='')}
+fetch('/downloads/Fuguang-3D-Album.apk',{method:'HEAD'}).then(r=>{if(!r.ok){const a=document.querySelector('#apk');a.removeAttribute('href');a.textContent='新版安装包正在准备';a.setAttribute('aria-disabled','true')}}).catch(()=>{});

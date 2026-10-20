@@ -1,0 +1,13 @@
+# Applied with TIM's original two compose files; only adds a hostname, certificates and network.
+services:
+  ip-test-proxy:
+    volumes:
+      - /opt/fuguang/deploy/https.nginx.conf:/etc/nginx/conf.d/fuguang.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks:
+      - default
+      - fuguang-edge
+networks:
+  fuguang-edge:
+    external: true
+    name: fuguang_ingress

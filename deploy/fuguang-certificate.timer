@@ -1,0 +1,8 @@
+[Unit]
+Description=Check Fuguang certificate twice daily
+[Timer]
+OnCalendar=*-*-* 03,15:25:00
+RandomizedDelaySec=900
+Persistent=true
+[Install]
+WantedBy=timers.target

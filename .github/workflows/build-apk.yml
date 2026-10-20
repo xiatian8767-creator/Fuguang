@@ -9,9 +9,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Verify account and weekly quota service
+        run: |
+          python3 -m pip install -r backend/requirements.txt
+          python3 -m unittest backend.test_app -v
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -69,10 +73,3 @@ jobs:
           name: ParallaxWallpaper-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-      - name: Publish installable APK
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Fuguang-3D-Album.apk
-          TAG="apk-${{ github.run_number }}"
-          gh release create "$TAG" Fuguang-3D-Album.apk --title "浮光 3D 相册 2.0 · #${{ github.run_number }}" --notes "中文立体相册：离线导入、缓存深度、沉浸查看、手势与陀螺仪预览、动态壁纸。修复深度图行对齐割裂与画面倒置。Android 8.1 及以上。" --target "${{ github.sha }}"

@@ -1,0 +1,6 @@
+[Unit]
+Description=Renew Fuguang HTTPS certificate
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/fuguang/deploy/renew.sh

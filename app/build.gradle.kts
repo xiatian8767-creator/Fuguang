@@ -7,19 +7,33 @@ plugins {
 android {
     namespace = "com.example.parallaxwallpaper"
     compileSdk = 35
+    buildToolsVersion = "35.0.0"
 
     defaultConfig {
         applicationId = "com.example.parallaxwallpaper"
         minSdk = 27          // NNAPI requires API 27+
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 4
+        versionName = "2.1.1"
+        buildConfigField("String", "ACCOUNT_BASE_URL", "\"https://fuguang.startimetable.xyz\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("fuguang") {
+            val path = System.getenv("FUGUANG_KEYSTORE")
+            if (!path.isNullOrBlank()) {
+                storeFile = file(path)
+                storePassword = System.getenv("FUGUANG_SIGNING_PASSWORD")
+                keyAlias = "fuguang"
+                keyPassword = System.getenv("FUGUANG_SIGNING_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
-            isMinifyEnabled = true
+            if (!System.getenv("FUGUANG_KEYSTORE").isNullOrBlank()) signingConfig = signingConfigs.getByName("fuguang")
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -34,7 +48,7 @@ android {
 
     kotlinOptions { jvmTarget = "17" }
 
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 
     androidResources {
         // Prevent Gradle from compressing the ONNX model in the APK

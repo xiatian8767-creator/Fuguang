@@ -27,6 +27,7 @@ class PhotoStore(private val context: Context) {
 
     fun list(): List<PhotoEntry> = root.listFiles().orEmpty().mapNotNull { dir ->
         try {
+            if (File(dir, "pending-job").exists()) return@mapNotNull null
             val meta = JSONObject(File(dir, "photo.json").readText())
             if (!File(dir, "photo.jpg").isFile || !File(dir, "depth.bin").isFile) return@mapNotNull null
             PhotoEntry(dir.name, meta.getString("title"), meta.getLong("created"),
@@ -35,9 +36,24 @@ class PhotoStore(private val context: Context) {
         } catch (_: Exception) { null }
     }.sortedByDescending { it.created }
 
-    suspend fun importPhoto(uri: Uri, status: (String) -> Unit): PhotoEntry {
+    fun markPending(entry: PhotoEntry, job: String) { File(root, "${entry.id}/pending-job").writeText(job) }
+    fun clearPending(entry: PhotoEntry) { File(root, "${entry.id}/pending-job").delete() }
+    fun pending(): List<Triple<PhotoEntry, String, String>> = root.listFiles().orEmpty().mapNotNull { dir ->
+        try {
+            val marker = File(dir, "pending-job")
+            if (!marker.exists()) null else {
+                val meta = JSONObject(File(dir, "photo.json").readText())
+                val ticket = JSONObject(marker.readText())
+                Triple(PhotoEntry(dir.name, meta.getString("title"), meta.getLong("created"), File(dir, "photo.jpg").absolutePath,
+                    meta.getInt("width"), meta.getInt("height"), meta.optDouble("strength", 0.018).toFloat()), ticket.getString("job"), ticket.getString("owner"))
+            }
+        } catch (_: Exception) { null }
+    }
+
+    suspend fun importPhoto(uri: Uri, job: String? = null, owner: String = "", status: (String) -> Unit): PhotoEntry {
         val dir = File(root, UUID.randomUUID().toString()).apply { mkdirs() }
         try {
+            if (job != null) File(dir, "pending-job").writeText(JSONObject().put("job",job).put("owner",owner).toString())
             status("正在读取照片…")
             val source = File(dir, "source")
             context.contentResolver.openInputStream(uri)?.use { input ->
