@@ -5,6 +5,7 @@ plugins {
 }
 
 android {
+    testBuildType = if (System.getenv("FUGUANG_TEST_RELEASE") == "1") "release" else "debug"
     namespace = "com.example.parallaxwallpaper"
     compileSdk = 35
     buildToolsVersion = "35.0.0"
@@ -13,8 +14,8 @@ android {
         applicationId = "com.example.parallaxwallpaper"
         minSdk = 27          // NNAPI requires API 27+
         targetSdk = 35
-        versionCode = 4
-        versionName = "2.1.1"
+        versionCode = 5
+        versionName = "2.1.2"
         buildConfigField("String", "ACCOUNT_BASE_URL", "\"https://fuguang.startimetable.xyz\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

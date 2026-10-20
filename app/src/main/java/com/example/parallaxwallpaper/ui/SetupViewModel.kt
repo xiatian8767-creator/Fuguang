@@ -11,6 +11,9 @@ import org.json.JSONObject
 import java.util.UUID
 import com.example.parallaxwallpaper.gallery.PhotoEntry
 import com.example.parallaxwallpaper.gallery.PhotoStore
+import com.example.parallaxwallpaper.gallery.VideoExporter
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +21,29 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class SetupViewModel(app: Application) : AndroidViewModel(app) {
+    private val _exportProgress = MutableStateFlow<Float?>(null)
+    val exportProgress = _exportProgress.asStateFlow()
+    private var exportJob: Job? = null
+    fun cancelExport() { exportJob?.cancel() }
+    fun exportVideo(photo: PhotoEntry, save: Boolean, onShare: (Uri) -> Unit) {
+        if (_exportProgress.value != null) return
+        _exportProgress.value = 0f
+        exportJob = viewModelScope.launch {
+            try {
+                val app = getApplication<Application>()
+                val file = withContext(Dispatchers.Default) {
+                    VideoExporter.export(app, photo) { _exportProgress.value = it }
+                }
+                if (save) {
+                    withContext(Dispatchers.IO) { VideoExporter.saveToAlbum(app, file) }
+                    file.delete()
+                    _message.value = "视频已保存到相册"
+                } else onShare(VideoExporter.shareUri(app, file))
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _message.value = "导出失败：${e.localizedMessage ?: "请稍后重试"}" }
+            finally { _exportProgress.value = null }
+        }
+    }
     private val store = PhotoStore(app)
     private val prefs = WallpaperPreferences(app)
     private val client = AccountClient(app)

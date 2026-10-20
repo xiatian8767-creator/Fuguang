@@ -26,5 +26,5 @@ if($Release){
 }else { & $Gradle --no-daemon assembleDebug lintDebug }
 if($LASTEXITCODE -ne 0){throw 'Android build failed'}
 New-Item -ItemType Directory -Force "$PSScriptRoot\..\dist" | Out-Null
-if($Release){Copy-Item "$PSScriptRoot\..\app\build\outputs\apk\release\app-release.apk" "$PSScriptRoot\..\dist\Fuguang-3D-Album-2.1.1-test.apk"}
-else { Copy-Item "$PSScriptRoot\..\app\build\outputs\apk\debug\app-debug.apk" "$PSScriptRoot\..\dist\Fuguang-3D-Album-2.1.1-test-debug.apk" }
+if($Release){Copy-Item "$PSScriptRoot\..\app\build\outputs\apk\release\app-release.apk" "$PSScriptRoot\..\dist\Fuguang-3D-Album-2.1.2-test.apk"}
+else { Copy-Item "$PSScriptRoot\..\app\build\outputs\apk\debug\app-debug.apk" "$PSScriptRoot\..\dist\Fuguang-3D-Album-2.1.2-test-debug.apk" }

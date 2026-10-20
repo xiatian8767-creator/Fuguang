@@ -7,8 +7,14 @@ import re
 from pathlib import Path
 os.environ.setdefault('EGL_PLATFORM', 'surfaceless')
 os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
-e = c.CDLL('libEGL.so.1')
-g = c.CDLL('libGL.so.1')
+if os.name == 'nt':
+    library_dir = Path(os.environ['FUGUANG_GL_LIB_DIR'])
+    dll_directory = os.add_dll_directory(str(library_dir))
+    e = c.CDLL(str(library_dir / 'libEGL.dll'))
+    g = c.CDLL(str(library_dir / 'libGLESv2.dll'))
+else:
+    e = c.CDLL('libEGL.so.1')
+    g = c.CDLL('libGL.so.1')
 
 def fn(lib, name, result, *args):
     f = getattr(lib, name); f.restype = result; f.argtypes = list(args); return f
@@ -42,7 +48,7 @@ def program(vs, fs):
     ok=I();fn(g,'glGetProgramiv',None,U,U,P)(p,0x8B82,c.byref(ok));assert ok.value
     fn(g,'glUseProgram',None,U)(p);return p
 
-code=Path('app/src/main/java/com/example/parallaxwallpaper/wallpaper/ParallaxEngine.kt').read_text()
+code=Path('app/src/main/java/com/example/parallaxwallpaper/wallpaper/ParallaxEngine.kt').read_text(encoding='utf8')
 vs=re.search(r'VERTEX_SHADER = """(.*?)"""',code,re.S).group(1)
 fs=re.search(r'FRAGMENT_SHADER = """(.*?)"""',code,re.S).group(1)
 p=program(vs,fs)
@@ -84,6 +90,45 @@ assert pixel(259,480)[0]>200 and pixel(259,40)[2]>200, ('vertical flip',pixel(25
 assert pixel(480,259)[1]>pixel(40,259)[1], 'horizontal flip'
 assert fn(g,'glGetError',U)()==0
 print('PASS: production shaders compile; image stays upright and unmirrored.')
+# A sharp foreground/background boundary used to split into two red silhouettes.
+original_program = p
+silhouette = bytearray()
+synthetic_depth = bytearray()
+for y in range(518):
+    for x in range(518):
+        foreground = 150 <= x < 368 and 70 <= y < 448
+        silhouette.extend((240,20,20,255) if foreground else (10,180,60,255))
+        synthetic_depth.append(230 if foreground else 25)
+for index,data,fmt in [(0,silhouette,0x1908),(1,synthetic_depth,0x1909)]:
+    fn(g,'glActiveTexture',None,U)(0x84C0+index)
+    buf=(c.c_ubyte*len(data)).from_buffer_copy(data)
+    pixelstore(0x0CF5,1);teximage(0x0DE1,0,fmt,518,518,0,fmt,0x1401,buf)
+legacy_fs = 'precision highp float; uniform sampler2D uImageTexture,uDepthTexture; uniform vec2 uParallaxOffset,uDepthTexel; uniform float uParallaxStrength; varying vec2 vTexCoord; void main(){vec2 uv=(vTexCoord-.5)/1.08+.5;float d=texture2D(uDepthTexture,uv).r*.4;d+=texture2D(uDepthTexture,uv+vec2(uDepthTexel.x,0.)).r*.15;d+=texture2D(uDepthTexture,uv-vec2(uDepthTexel.x,0.)).r*.15;d+=texture2D(uDepthTexture,uv+vec2(0.,uDepthTexel.y)).r*.15;d+=texture2D(uDepthTexture,uv-vec2(0.,uDepthTexel.y)).r*.15;gl_FragColor=texture2D(uImageTexture,uv+(d-.5)*uParallaxOffset*uParallaxStrength);}'
+legacy = program(vs,legacy_fs)
+for direction in [-1.,1.]:
+    counts=[]
+    for active in [legacy,original_program]:
+        p=active;fn(g,'glUseProgram',None,U)(p)
+        for name,offset in [('aPosition',0),('aTexCoord',8)]:
+            loc=fn(g,'glGetAttribLocation',I,U,c.c_char_p)(p,name.encode())
+            fn(g,'glEnableVertexAttribArray',None,U)(loc)
+            fn(g,'glVertexAttribPointer',None,U,I,U,U,I,P)(loc,2,0x1406,0,16,c.addressof(verts)+offset)
+        fn(g,'glUniform1i',None,I,I)(uniform('uImageTexture'),0)
+        fn(g,'glUniform1i',None,I,I)(uniform('uDepthTexture'),1)
+        fn(g,'glUniform2f',None,I,F,F)(uniform('uDepthTexel'),1/518,1/518)
+        fn(g,'glUniform2f',None,I,F,F)(uniform('uParallaxOffset'),direction,0)
+        fn(g,'glUniform1f',None,I,F)(uniform('uParallaxStrength'),.035)
+        fn(g,'glDrawArrays',None,U,I,I)(5,0,4);read(0,0,518,518,0x1908,0x1401,pixels)
+        red=[pixel(x,259)[0]>180 and pixel(x,259)[1]<80 for x in range(518)]
+        groups=sum(value and (i==0 or not red[i-1]) for i,value in enumerate(red))
+        counts.append(groups)
+    assert counts[0]>=2 and counts[1]==1, ('silhouette split',direction,counts)
+    print(f'PASS: tilt {direction:+}, legacy {counts[0]} foreground strips -> new {counts[1]} continuous silhouette.')
+# Restore original depth for the row alignment regression below.
+fn(g,'glActiveTexture',None,U)(0x84C1)
+buf=(c.c_ubyte*len(depth)).from_buffer_copy(depth)
+pixelstore(0x0CF5,1);teximage(0x0DE1,0,0x1909,518,518,0,0x1909,0x1401,buf)
+
 # Directly sample uploaded depth with nearest filtering. Compare every pixel.
 fs2='precision highp float; uniform sampler2D uDepthTexture; varying vec2 vTexCoord; void main(){float d=texture2D(uDepthTexture,vTexCoord).r; gl_FragColor=vec4(d,d,d,1.0);}'
 p=program(vs,fs2)

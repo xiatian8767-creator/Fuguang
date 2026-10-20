@@ -157,6 +157,8 @@ private fun AlbumHome(photos: List<PhotoEntry>, onImport: () -> Unit, onOpen: (P
 @Composable
 private fun PhotoDetail(photo: PhotoEntry, vm: SetupViewModel) {
     val context = LocalContext.current
+    val exportProgress by vm.exportProgress.collectAsState()
+    var exportDialog by remember { mutableStateOf(false) }
     var strength by remember { mutableFloatStateOf(photo.strength) }
     var immersive by remember { mutableStateOf(false) }
     var deleteDialog by remember { mutableStateOf(false) }
@@ -164,11 +166,27 @@ private fun PhotoDetail(photo: PhotoEntry, vm: SetupViewModel) {
     var title by remember(photo.title) { mutableStateOf(photo.title) }
     var previewError by remember { mutableStateOf<String?>(null) }
     val preview = remember(photo.id) { PhotoPreviewView(context, photo) { previewError = it } }
+    fun export(save: Boolean) {
+        exportDialog = false
+        vm.exportVideo(photo.copy(strength = strength), save) { uri ->
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "video/mp4"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = android.content.ClipData.newUri(context.contentResolver, "浮光视频", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }, "分享视频"))
+        }
+    }
+    val storagePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) export(true) else previewError = "保存视频需要相册权限"
+    }
+    val exporting by rememberUpdatedState(exportProgress != null)
+    LaunchedEffect(exporting) { preview.setActive(!exporting && (context as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != false) }
     DisposableEffect(preview) {
         val owner = context as? LifecycleOwner
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> preview.setActive(true)
+                Lifecycle.Event.ON_RESUME -> preview.setActive(!exporting)
                 Lifecycle.Event.ON_PAUSE -> preview.setActive(false)
                 else -> Unit
             }
@@ -177,7 +195,7 @@ private fun PhotoDetail(photo: PhotoEntry, vm: SetupViewModel) {
         preview.setActive(owner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != false)
         onDispose { owner?.lifecycle?.removeObserver(observer); preview.dispose() }
     }
-    BackHandler { if (immersive) immersive = false else vm.close() }
+    BackHandler { if (exportProgress != null) vm.cancelExport() else if (immersive) immersive = false else vm.close() }
     Column(Modifier.fillMaxSize().background(Color(0xFF121119))) {
         if (!immersive) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -212,6 +230,9 @@ private fun PhotoDetail(photo: PhotoEntry, vm: SetupViewModel) {
                     OutlinedButton(onClick = { preview.recenter() }, modifier = Modifier.weight(1f)) { Text("视角回正") }
                     OutlinedButton(onClick = { immersive = true }, modifier = Modifier.weight(1f)) { Text("沉浸查看") }
                 }
+                OutlinedButton(onClick = { exportDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("导出 / 分享视频")
+                }
                 Button(onClick = {
                     vm.setWallpaper(photo.copy(strength = strength)) {
                         try {
@@ -227,6 +248,19 @@ private fun PhotoDetail(photo: PhotoEntry, vm: SetupViewModel) {
             }
         }
     }
+    if (exportDialog) AlertDialog(onDismissRequest = { exportDialog = false }, title = { Text("导出视频") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = { export(false) }, modifier = Modifier.fillMaxWidth()) { Text("分享视频") }
+            TextButton(onClick = {
+                if (android.os.Build.VERSION.SDK_INT < 29 && androidx.core.content.ContextCompat.checkSelfPermission(context,
+                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    storagePermission.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                } else export(true)
+            }, modifier = Modifier.fillMaxWidth()) { Text("保存到相册") }
+        } }, confirmButton = {}, dismissButton = { TextButton(onClick = { exportDialog = false }) { Text("取消") } })
+    if (exportProgress != null) AlertDialog(onDismissRequest = vm::cancelExport, title = { Text("正在导出 ${(exportProgress!! * 100).toInt()}%") },
+        text = { LinearProgressIndicator(progress = { exportProgress!! }, modifier = Modifier.fillMaxWidth()) },
+        confirmButton = {}, dismissButton = { TextButton(onClick = vm::cancelExport) { Text("取消") } })
     if (deleteDialog) AlertDialog(onDismissRequest = { deleteDialog = false }, title = { Text("删除这张照片？") },
         text = { Text("会移除相册里的照片和立体效果，手机原图不受影响。已应用的壁纸会保留。") },
         confirmButton = { TextButton(onClick = { deleteDialog = false; vm.delete(photo) }) { Text("删除", color = Color(0xFFB64C65)) } },

@@ -87,13 +87,35 @@ class ParallaxEngine {
             void main() {
                 // A small overscan leaves room for movement without mirrored borders.
                 vec2 uv = (vTexCoord - 0.5) / 1.08 + 0.5;
-                float d = texture2D(uDepthTexture, uv).r * 0.4;
-                d += texture2D(uDepthTexture, uv + vec2(uDepthTexel.x, 0.0)).r * 0.15;
-                d += texture2D(uDepthTexture, uv - vec2(uDepthTexel.x, 0.0)).r * 0.15;
-                d += texture2D(uDepthTexture, uv + vec2(0.0, uDepthTexel.y)).r * 0.15;
-                d += texture2D(uDepthTexture, uv - vec2(0.0, uDepthTexel.y)).r * 0.15;
-                // Depth Anything predicts inverse depth: larger values are nearer.
-                vec2 shifted = uv + (d - 0.5) * uParallaxOffset * uParallaxStrength;
+                vec2 offset = uParallaxOffset * uParallaxStrength;
+                // Keep silhouettes conservative: a single photo has no hidden background.
+                vec2 radius = abs(offset) * 1.5 + uDepthTexel * 2.0;
+                float center = texture2D(uDepthTexture, uv).r;
+                float contrast = 0.0;
+                contrast = max(contrast, abs(center - texture2D(uDepthTexture, uv + vec2(radius.x, 0.0)).r));
+                contrast = max(contrast, abs(center - texture2D(uDepthTexture, uv - vec2(radius.x, 0.0)).r));
+                contrast = max(contrast, abs(center - texture2D(uDepthTexture, uv + vec2(0.0, radius.y)).r));
+                contrast = max(contrast, abs(center - texture2D(uDepthTexture, uv - vec2(0.0, radius.y)).r));
+                offset *= mix(1.0, 0.25, smoothstep(0.08, 0.35, contrast));
+                // Trace from the nearest surface instead of sampling output-pixel depth.
+                // This avoids sampling the same foreground again across its silhouette.
+                float upper = 1.0;
+                float lower = 0.0;
+                bool hit = false;
+                for (int i = 0; i <= 8; i++) {
+                    float z = 1.0 - float(i) / 8.0;
+                    float sampleDepth = texture2D(uDepthTexture, uv + offset * (z - 0.5)).r;
+                    if (!hit) {
+                        if (sampleDepth >= z) { lower = z; hit = true; }
+                        else { upper = z; }
+                    }
+                }
+                for (int i = 0; i < 3; i++) {
+                    float z = (upper + lower) * 0.5;
+                    if (texture2D(uDepthTexture, uv + offset * (z - 0.5)).r >= z) lower = z;
+                    else upper = z;
+                }
+                vec2 shifted = uv + offset * ((upper + lower) * 0.5 - 0.5);
                 gl_FragColor = texture2D(uImageTexture, clamp(shifted, 0.001, 0.999));
             }
         """.trimIndent()
@@ -102,11 +124,11 @@ class ParallaxEngine {
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
     /** Must be called from the render thread. */
-    fun init(surface: Surface, width: Int, height: Int) {
+    fun init(surface: Surface, width: Int, height: Int, recordable: Boolean = false) {
         surfaceWidth = width
         surfaceHeight = height
 
-        setupEgl(surface)
+        setupEgl(surface, recordable)
         setupShaders()
         setupQuad()
         setupTextures()
@@ -176,7 +198,7 @@ class ParallaxEngine {
      * Draw one frame. [tiltX] and [tiltY] are normalized gyro offsets in [-1, 1].
      * Must be called from the render thread.
      */
-    fun draw(tiltX: Float, tiltY: Float) {
+    fun draw(tiltX: Float, tiltY: Float, presentationTimeNs: Long? = null) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         GLES20.glUseProgram(program)
 
@@ -221,12 +243,14 @@ class ParallaxEngine {
         GLES20.glDisableVertexAttribArray(uvLoc)
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
 
-        EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+        presentationTimeNs?.let { android.opengl.EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface, it) }
+        val swapped = EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+        if (presentationTimeNs != null) check(swapped) { "渲染失败" }
     }
 
     // ── Private helpers ────────────────────────────────────────────────────
 
-    private fun setupEgl(surface: Surface) {
+    private fun setupEgl(surface: Surface, recordable: Boolean) {
         eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
         EGL14.eglInitialize(eglDisplay, null, 0, null, 0)
 
@@ -238,6 +262,7 @@ class ParallaxEngine {
             EGL14.EGL_BLUE_SIZE, 8,
             EGL14.EGL_ALPHA_SIZE, 0,
             EGL14.EGL_DEPTH_SIZE, 0,
+            0x3142, if (recordable) 1 else -1, // EGL_RECORDABLE_ANDROID / EGL_DONT_CARE
             EGL14.EGL_NONE
         )
         val configs = arrayOfNulls<EGLConfig>(1)

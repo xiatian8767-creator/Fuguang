@@ -472,5 +472,12 @@ def download_test_apk():
 
 
 initialize()
+@app.api_route('/downloads/Fuguang-3D-Album-2.1.2-test.apk',methods=['GET','HEAD'])
+def download_export_test_apk():
+    path=ROOT/'static'/'site'/'downloads'/'Fuguang-3D-Album-2.1.2-test.apk'
+    if not path.is_file(): raise HTTPException(404,'测试包正在准备')
+    return FileResponse(path,media_type='application/vnd.android.package-archive',filename=path.name,headers={'Cache-Control':'no-cache'})
+
+
 app.mount("/admin",StaticFiles(directory=ROOT/"static"/"admin",html=True),name="admin")
 app.mount("/",StaticFiles(directory=ROOT/"static"/"site",html=True),name="site")
