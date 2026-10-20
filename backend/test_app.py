@@ -132,6 +132,24 @@ class Entitlements(unittest.TestCase):
         self.assertEqual(self.admin.post('/api/admin/campaigns',json=config|{'starts':service.now()+1000},headers=self.csrf).status_code,200)
         self.assertIsNone(self.client.get('/api/campaigns?version=3',headers=self.auth).json()['campaign'])
 
+    def test_delete_campaign_checks_and_receipt_cleanup(self):
+        config={'title':'删除测试','enabled':True,'frequency':'always'}
+        cid=self.admin.post('/api/admin/campaigns',json=config,headers=self.csrf).json()['id']
+        url='/api/admin/campaigns/'+cid
+        self.assertEqual(self.client.request('DELETE',url,json={'revision':1}).status_code,401)
+        self.assertEqual(self.admin.request('DELETE',url,json={'revision':1}).status_code,403)
+        self.client.post('/api/campaigns/'+cid+'/displayed',json={'revision':1},headers=self.auth)
+        self.assertEqual(self.admin.request('DELETE',url,json={'revision':2},headers=self.csrf).status_code,409)
+        with service.db() as c:
+            self.assertEqual(c.execute('SELECT count(*) FROM campaign_receipts WHERE cid=?',(cid,)).fetchone()[0],1)
+        self.assertEqual(self.admin.request('DELETE',url,json={'revision':1},headers=self.csrf).status_code,200)
+        self.assertEqual(self.admin.get('/api/admin/campaigns').json(),[])
+        self.assertIsNone(self.client.get('/api/campaigns',headers=self.auth).json()['campaign'])
+        with service.db() as c:
+            self.assertEqual(c.execute('SELECT count(*) FROM campaign_receipts WHERE cid=?',(cid,)).fetchone()[0],0)
+            self.assertEqual(c.execute("SELECT count(*) FROM audit WHERE action='delete-campaign' AND target=?",(cid,)).fetchone()[0],1)
+        self.assertEqual(self.admin.request('DELETE',url,json={'revision':1},headers=self.csrf).status_code,404)
+
     def test_apk_download_headers_and_range(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)

@@ -429,6 +429,22 @@ def update_campaign(cid: str,data: Campaign,session=Depends(admin)):
     return {'ok':True}
 
 
+class CampaignRevision(BaseModel):
+    revision: int = Field(ge=1)
+
+
+@app.delete('/api/admin/campaigns/{cid}')
+def delete_campaign(cid: str,data: CampaignRevision,session=Depends(admin)):
+    with db() as c:
+        row=c.execute('SELECT revision FROM campaigns WHERE id=?',(cid,)).fetchone()
+        if not row: raise HTTPException(404,"弹窗不存在")
+        if row['revision']!=data.revision: raise HTTPException(409,"配置已被修改，请刷新后重试")
+        c.execute('DELETE FROM campaign_receipts WHERE cid=?',(cid,))
+        c.execute('DELETE FROM campaigns WHERE id=?',(cid,))
+        c.execute("INSERT INTO audit(action,target,created) VALUES('delete-campaign',?,?)",(cid,now()))
+    return {'ok':True}
+
+
 @app.api_route('/downloads/Fuguang-3D-Album.apk',methods=['GET','HEAD'])
 def download_apk():
     path=ROOT/'static'/'site'/'downloads'/'Fuguang-3D-Album.apk'
