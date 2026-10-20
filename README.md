@@ -1,4 +1,4 @@
-# 浮光 · 3D 相册 2.1.1 测试版
+# 浮光 · 3D 相册 2.1.1
 
 把普通照片存成可随手机转动的3D相册，支持本地深度缓存、拖动预览、沉浸查看和动态壁纸。
 
@@ -32,7 +32,7 @@ python -m uvicorn backend.app:app --host 127.0.0.1 --port 18765
 python -m unittest backend.test_app -v
 ```
 
-本版测试包和推送配置见 [2.1.1测试交付](docs/2.1.1-test.md)。官网页面和正式下载保留旧版，待用户实测通过后更新。
+本版安装包和推送配置见 [2.1.1交付](docs/2.1.1-test.md)。2026-10-20已按用户要求发布官网页面和2.1.1正式下载；旧版保留服务器备份。
 
 维护说明见 [会员与部署](docs/会员与部署.md)。相册渲染和设备检查保留在 `scripts/test_gl_render.py`、`scripts/run_device_checks.py` 与 `app/src/androidTest`。
 
