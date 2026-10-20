@@ -150,6 +150,29 @@ class Entitlements(unittest.TestCase):
             self.assertEqual(c.execute("SELECT count(*) FROM audit WHERE action='delete-campaign' AND target=?",(cid,)).fetchone()[0],1)
         self.assertEqual(self.admin.request('DELETE',url,json={'revision':1},headers=self.csrf).status_code,404)
 
+    def test_reset_campaign_restores_eligibility_without_changing_config(self):
+        config={'title':'重置测试','enabled':True,'frequency':'once','target_version':4}
+        cid=self.admin.post('/api/admin/campaigns',json=config,headers=self.csrf).json()['id']
+        other=self.admin.post('/api/admin/campaigns',json=config|{'enabled':False},headers=self.csrf).json()['id']
+        self.client.post('/api/campaigns/'+cid+'/displayed',json={'revision':1},headers=self.auth)
+        with service.db() as c:
+            original=c.execute('SELECT config FROM campaigns WHERE id=?',(cid,)).fetchone()[0]
+            c.execute('INSERT INTO campaign_receipts VALUES(?,?,?,?)',(other,self.uid,'once',service.now()))
+        self.assertIsNone(self.client.get('/api/campaigns?version=3',headers=self.auth).json()['campaign'])
+        url='/api/admin/campaigns/'+cid+'/reset'
+        self.assertEqual(self.client.post(url,json={'revision':1}).status_code,401)
+        self.assertEqual(self.admin.post(url,json={'revision':1}).status_code,403)
+        self.assertEqual(self.admin.post(url,json={'revision':2},headers=self.csrf).status_code,409)
+        self.assertEqual(self.admin.post(url,json={'revision':1},headers=self.csrf).json()['revision'],2)
+        campaign=self.client.get('/api/campaigns?version=3',headers=self.auth).json()['campaign']
+        self.assertEqual((campaign['id'],campaign['revision']),(cid,2))
+        self.assertEqual(self.client.post('/api/campaigns/'+cid+'/displayed',json={'revision':1},headers=self.auth).status_code,409)
+        with service.db() as c:
+            self.assertEqual(c.execute('SELECT config FROM campaigns WHERE id=?',(cid,)).fetchone()[0],original)
+            self.assertEqual(c.execute('SELECT count(*) FROM campaign_receipts WHERE cid=?',(cid,)).fetchone()[0],0)
+            self.assertEqual(c.execute('SELECT count(*) FROM campaign_receipts WHERE cid=?',(other,)).fetchone()[0],1)
+        self.assertEqual(self.admin.post('/api/admin/campaigns/missing/reset',json={'revision':1},headers=self.csrf).status_code,404)
+
     def test_apk_download_headers_and_range(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)

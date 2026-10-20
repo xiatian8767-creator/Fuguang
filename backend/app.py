@@ -433,6 +433,18 @@ class CampaignRevision(BaseModel):
     revision: int = Field(ge=1)
 
 
+@app.post('/api/admin/campaigns/{cid}/reset')
+def reset_campaign(cid: str,data: CampaignRevision,session=Depends(admin)):
+    with db() as c:
+        row=c.execute('SELECT revision FROM campaigns WHERE id=?',(cid,)).fetchone()
+        if not row: raise HTTPException(404,"弹窗不存在")
+        if row['revision']!=data.revision: raise HTTPException(409,"配置已被修改，请刷新后重试")
+        c.execute('DELETE FROM campaign_receipts WHERE cid=?',(cid,))
+        c.execute('UPDATE campaigns SET revision=revision+1 WHERE id=?',(cid,))
+        c.execute("INSERT INTO audit(action,target,created) VALUES('reset-campaign',?,?)",(cid,now()))
+    return {'ok':True,'revision':data.revision+1}
+
+
 @app.delete('/api/admin/campaigns/{cid}')
 def delete_campaign(cid: str,data: CampaignRevision,session=Depends(admin)):
     with db() as c:
