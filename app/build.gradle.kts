@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.parallaxwallpaper"
         minSdk = 27          // NNAPI requires API 27+
         targetSdk = 35
-        versionCode = 5
-        versionName = "2.1.2"
+        versionCode = 6
+        versionName = "6"
         buildConfigField("String", "ACCOUNT_BASE_URL", "\"https://fuguang.startimetable.xyz\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -39,3 +39,5 @@ python -m unittest backend.test_app -v
 来源：[ParallaxWallpaper](https://github.com/xiatian8767-creator/ParallaxWallpaper)，深度模型来自 [Tiefling](https://github.com/combatwombat/tiefling/tree/main/site/public/models)。原有中文版渲染修复和相册说明保留于 `docs/FUGUANG-2.0.md`。
 
 2.1.2导出与轮廓优化测试版见 [测试交付](docs/2.1.2-test.md)，官网正式下载暂保留2.1.1。
+
+版本6继续优化波纹与人物轮廓，显示版本与后台目标值统一为6，见 [版本6测试交付](docs/6-test.md)。不增加小红书适配，官网正式下载在用户验收前保留原版。

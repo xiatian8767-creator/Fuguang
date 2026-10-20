@@ -1,6 +1,7 @@
 package com.example.parallaxwallpaper.wallpaper
 
 import android.graphics.Bitmap
+import com.example.parallaxwallpaper.depth.DepthField
 import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
@@ -40,7 +41,6 @@ class ParallaxEngine {
     private var uDepthTexture = 0
     private var uParallaxOffset = 0
     private var uParallaxStrength = 0
-    private var uDepthTexel = 0
     private var imageWidth = 1
     private var imageHeight = 1
     var fitImage = false
@@ -82,40 +82,22 @@ class ParallaxEngine {
             uniform sampler2D uDepthTexture;
             uniform vec2 uParallaxOffset;
             uniform float uParallaxStrength;
-            uniform vec2 uDepthTexel;
             varying vec2 vTexCoord;
+            float sampleDepth(vec2 uv) {
+                vec2 encodedDepth = texture2D(uDepthTexture, uv).rg;
+                return dot(encodedDepth, vec2(256.0 / 257.0, 1.0 / 257.0));
+            }
             void main() {
-                // A small overscan leaves room for movement without mirrored borders.
                 vec2 uv = (vTexCoord - 0.5) / 1.08 + 0.5;
                 vec2 offset = uParallaxOffset * uParallaxStrength;
-                // Keep silhouettes conservative: a single photo has no hidden background.
-                vec2 radius = abs(offset) * 1.5 + uDepthTexel * 2.0;
-                float center = texture2D(uDepthTexture, uv).r;
-                float contrast = 0.0;
-                contrast = max(contrast, abs(center - texture2D(uDepthTexture, uv + vec2(radius.x, 0.0)).r));
-                contrast = max(contrast, abs(center - texture2D(uDepthTexture, uv - vec2(radius.x, 0.0)).r));
-                contrast = max(contrast, abs(center - texture2D(uDepthTexture, uv + vec2(0.0, radius.y)).r));
-                contrast = max(contrast, abs(center - texture2D(uDepthTexture, uv - vec2(0.0, radius.y)).r));
-                offset *= mix(1.0, 0.25, smoothstep(0.08, 0.35, contrast));
-                // Trace from the nearest surface instead of sampling output-pixel depth.
-                // This avoids sampling the same foreground again across its silhouette.
-                float upper = 1.0;
-                float lower = 0.0;
-                bool hit = false;
-                for (int i = 0; i <= 8; i++) {
-                    float z = 1.0 - float(i) / 8.0;
-                    float sampleDepth = texture2D(uDepthTexture, uv + offset * (z - 0.5)).r;
-                    if (!hit) {
-                        if (sampleDepth >= z) { lower = z; hit = true; }
-                        else { upper = z; }
-                    }
+                // A prefiltered, slope-bounded field has one continuous inverse.
+                // Fixed-point sampling avoids discrete ray-hit jumps and masks
+                // that change shape while tilting. CPU preparation bounds the
+                // contraction to .42 even at maximum diagonal movement.
+                vec2 shifted = uv;
+                for (int i = 0; i < 12; i++) {
+                    shifted = uv + offset * (sampleDepth(shifted) - 0.5);
                 }
-                for (int i = 0; i < 3; i++) {
-                    float z = (upper + lower) * 0.5;
-                    if (texture2D(uDepthTexture, uv + offset * (z - 0.5)).r >= z) lower = z;
-                    else upper = z;
-                }
-                vec2 shifted = uv + offset * ((upper + lower) * 0.5 - 0.5);
                 gl_FragColor = texture2D(uImageTexture, clamp(shifted, 0.001, 0.999));
             }
         """.trimIndent()
@@ -168,27 +150,26 @@ class ParallaxEngine {
     }
 
     /**
-     * Upload depth map as a luminance texture.
+     * Upload a stable, 16-bit depth field; applies to cached photos as well.
      * [depth] is a FloatArray of size [w * h] normalized to [0, 1].
      */
     fun uploadDepth(depth: FloatArray, w: Int, h: Int) {
         require(w > 0 && h > 0 && depth.size == w * h)
-        val buf = ByteBuffer.allocateDirect(w * h).apply {
-            for (v in depth) put((v * 255f).toInt().coerceIn(0, 255).toByte())
+        val packed = DepthField.pack(DepthField.prepare(depth, w, h))
+        val buf = ByteBuffer.allocateDirect(packed.size).apply {
+            put(packed)
             rewind()
         }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[1])
-        // 518-byte rows are NOT divisible by the default alignment of four.
-        // Without this, every row starts two bytes too late: diagonal tearing.
+        // Explicit alignment also keeps future depth layouts safe.
         GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
         GLES20.glTexImage2D(
-            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE,
-            w, h, 0, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, buf
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA,
+            w, h, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf
         )
         GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 4)
         GLES20.glUseProgram(program)
-        GLES20.glUniform2f(uDepthTexel, 1f / w, 1f / h)
 
     }
 
@@ -291,8 +272,10 @@ class ParallaxEngine {
         }
         GLES20.glDeleteShader(vs)
         GLES20.glDeleteShader(fs)
+        val linked = IntArray(1)
+        GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linked, 0)
+        check(linked[0] != GLES20.GL_FALSE) { "Shader link error: ${GLES20.glGetProgramInfoLog(program)}" }
 
-        uDepthTexel = GLES20.glGetUniformLocation(program, "uDepthTexel")
         uImageTexture   = GLES20.glGetUniformLocation(program, "uImageTexture")
         uDepthTexture   = GLES20.glGetUniformLocation(program, "uDepthTexture")
         uParallaxOffset = GLES20.glGetUniformLocation(program, "uParallaxOffset")
@@ -332,7 +315,10 @@ class ParallaxEngine {
         val status = IntArray(1)
         GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, status, 0)
         if (status[0] == GLES20.GL_FALSE) {
-            Log.e(TAG, "Shader compile error: ${GLES20.glGetShaderInfoLog(shader)}")
+            val message = GLES20.glGetShaderInfoLog(shader)
+            Log.e(TAG, "Shader compile error: $message")
+            GLES20.glDeleteShader(shader)
+            error("Shader compile error: $message")
         }
         return shader
     }

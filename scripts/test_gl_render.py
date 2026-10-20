@@ -4,6 +4,7 @@ Uses stdlib ctypes only. Run: EGL_PLATFORM=surfaceless python3 scripts/test_gl_r
 import ctypes as c
 import os
 import re
+import struct
 from pathlib import Path
 os.environ.setdefault('EGL_PLATFORM', 'surfaceless')
 os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
@@ -105,9 +106,19 @@ for index,data,fmt in [(0,silhouette,0x1908),(1,synthetic_depth,0x1909)]:
     pixelstore(0x0CF5,1);teximage(0x0DE1,0,fmt,518,518,0,fmt,0x1401,buf)
 legacy_fs = 'precision highp float; uniform sampler2D uImageTexture,uDepthTexture; uniform vec2 uParallaxOffset,uDepthTexel; uniform float uParallaxStrength; varying vec2 vTexCoord; void main(){vec2 uv=(vTexCoord-.5)/1.08+.5;float d=texture2D(uDepthTexture,uv).r*.4;d+=texture2D(uDepthTexture,uv+vec2(uDepthTexel.x,0.)).r*.15;d+=texture2D(uDepthTexture,uv-vec2(uDepthTexel.x,0.)).r*.15;d+=texture2D(uDepthTexture,uv+vec2(0.,uDepthTexel.y)).r*.15;d+=texture2D(uDepthTexture,uv-vec2(0.,uDepthTexel.y)).r*.15;gl_FragColor=texture2D(uImageTexture,uv+(d-.5)*uParallaxOffset*uParallaxStrength);}'
 legacy = program(vs,legacy_fs)
+fixture_dir = Path(os.environ.get('FUGUANG_DEPTH_FIXTURE_DIR', 'qa/output/depth-research'))
+prepared_values = struct.unpack('>268324f', (fixture_dir / 'synthetic-prepared.bin').read_bytes())
+prepared_bytes = bytearray()
+for value in prepared_values:
+    q = round(value * 65535)
+    prepared_bytes.extend((q >> 8, q & 255, 0, 255))
 for direction in [-1.,1.]:
     counts=[]
     for active in [legacy,original_program]:
+        data,fmt = (synthetic_depth,0x1909) if active == legacy else (prepared_bytes,0x1908)
+        fn(g,'glActiveTexture',None,U)(0x84C1)
+        buf=(c.c_ubyte*len(data)).from_buffer_copy(data)
+        pixelstore(0x0CF5,1);teximage(0x0DE1,0,fmt,518,518,0,fmt,0x1401,buf)
         p=active;fn(g,'glUseProgram',None,U)(p)
         for name,offset in [('aPosition',0),('aTexCoord',8)]:
             loc=fn(g,'glGetAttribLocation',I,U,c.c_char_p)(p,name.encode())
