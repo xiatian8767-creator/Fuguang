@@ -479,5 +479,16 @@ def download_export_test_apk():
     return FileResponse(path,media_type='application/vnd.android.package-archive',filename=path.name,headers={'Cache-Control':'no-cache'})
 
 
+@app.api_route('/downloads/{filename}',methods=['GET','HEAD'])
+def download_versioned_apk(filename: str):
+    # Every future version needs explicit APK headers, regardless of the host's
+    # MIME database. Otherwise StaticFiles can render APK bytes as plain text.
+    if not re.fullmatch(r'Fuguang-3D-Album(?:-[0-9]+(?:\.[0-9]+)*(?:-test)?)?\.apk', filename):
+        raise HTTPException(404,'安装包不存在')
+    path=ROOT/'static'/'site'/'downloads'/filename
+    if not path.is_file(): raise HTTPException(404,'安装包正在准备')
+    return FileResponse(path,media_type='application/vnd.android.package-archive',filename=filename,headers={'Cache-Control':'no-cache'})
+
+
 app.mount("/admin",StaticFiles(directory=ROOT/"static"/"admin",html=True),name="admin")
 app.mount("/",StaticFiles(directory=ROOT/"static"/"site",html=True),name="site")

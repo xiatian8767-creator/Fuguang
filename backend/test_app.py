@@ -176,17 +176,27 @@ class Entitlements(unittest.TestCase):
     def test_apk_download_headers_and_range(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
-            target=root/'static/site/downloads/Fuguang-3D-Album.apk'
-            target.parent.mkdir(parents=True)
-            target.write_bytes(b'PK-test-apk')
+            downloads=root/'static/site/downloads'
+            downloads.mkdir(parents=True)
+            for filename in ['Fuguang-3D-Album.apk','Fuguang-3D-Album-6-test.apk','Fuguang-3D-Album-7-test.apk']:
+                (downloads/filename).write_bytes(b'PK-test-apk')
+                with patch.object(service,'ROOT',root):
+                    url='/downloads/'+filename
+                    head=self.client.head(url)
+                    self.assertEqual(head.status_code,200)
+                    self.assertEqual(head.headers['content-type'],'application/vnd.android.package-archive')
+                    self.assertIn('attachment',head.headers['content-disposition'])
+                    self.assertIn(filename,head.headers['content-disposition'])
+                    self.assertEqual(head.headers['cache-control'],'no-cache')
+                    response=self.client.get(url,headers={'Range':'bytes=0-1'})
+                    self.assertEqual(response.status_code,206)
+                    self.assertEqual(response.content,b'PK')
+                    self.assertEqual(response.headers['content-type'],'application/vnd.android.package-archive')
+                    self.assertIn('attachment',response.headers['content-disposition'])
             with patch.object(service,'ROOT',root):
-                head=self.client.head('/downloads/Fuguang-3D-Album.apk')
-                self.assertEqual(head.status_code,200)
-                self.assertEqual(head.headers['content-type'],'application/vnd.android.package-archive')
-                self.assertIn('attachment',head.headers['content-disposition'])
-                response=self.client.get('/downloads/Fuguang-3D-Album.apk',headers={'Range':'bytes=0-1'})
-                self.assertEqual(response.status_code,206)
-                self.assertEqual(response.content,b'PK')
+                self.assertEqual(self.client.get('/downloads/Fuguang-3D-Album-999-test.apk').status_code,404)
+                self.assertEqual(self.client.get('/downloads/secret.txt').status_code,404)
+
 
 
 if __name__=='__main__': unittest.main()
