@@ -23,7 +23,7 @@ ok(client.post('/api/generations/'+jobs[0]+'/commit',headers=auth,json={}))
 ok(client.post('/api/generations/'+jobs[1]+'/cancel',headers=auth,json={}))
 assert ok(client.get('/api/me',headers=auth))['remaining']==4
 adminpass=(root/'private/管理员凭据.txt').read_text(encoding='utf8').split('管理员密码：')[1].splitlines()[0]
-csrf=ok(client.post('/api/admin/login',json={'password':adminpass}))['csrf']; h={'X-CSRF-Token':csrf}
+csrf=ok(client.post('/api/admin/login',json={'username':(root/'private/管理员凭据.txt').read_text(encoding='utf8').split('管理员账号：')[1].splitlines()[0],'password':adminpass}))['csrf']; h={'X-CSRF-Token':csrf}
 code=ok(client.post('/api/admin/codes',json={'plan':'month','count':1},headers=h))['codes'][0]
 assert ok(client.post('/api/redeem',json={'code':code},headers=auth))['member']
 assert client.post('/api/redeem',json={'code':code},headers=auth).status_code==400

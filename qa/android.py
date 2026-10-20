@@ -47,7 +47,7 @@ tap(find('注册并登录'));find(username);screenshot('android-account.png')
 tap(find('完成'))
 client=httpx.Client(base_url='https://fuguang.startimetable.xyz',timeout=30)
 adminpass=(root/'private/管理员凭据.txt').read_text(encoding='utf8').split('管理员密码：')[1].splitlines()[0]
-r=client.post('/api/admin/login',json={'password':adminpass});r.raise_for_status()
+r=client.post('/api/admin/login',json={'username':(root/'private/管理员凭据.txt').read_text(encoding='utf8').split('管理员账号：')[1].splitlines()[0],'password':adminpass});r.raise_for_status()
 headers={'X-CSRF-Token':r.json()['csrf']}
 r=client.get('/api/admin/users',params={'q':username});r.raise_for_status();uid=r.json()[0]['id']
 fixture={'uid':uid,'username':username}

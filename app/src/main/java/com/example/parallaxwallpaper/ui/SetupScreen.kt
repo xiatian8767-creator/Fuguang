@@ -68,7 +68,7 @@ fun SetupScreen(modifier: Modifier = Modifier, vm: SetupViewModel = viewModel())
             val photo = selected
             if (loginRequired) Box(Modifier.fillMaxSize())
             else if (photo == null) AlbumHome(photos, { if (account == null) showAccount = true else picker.launch("image/*") }, vm::open,
-                { showAccount = true }, account?.let { if (it.optBoolean("member")) "会员" else "本周剩余 ${it.optInt("remaining")} / 10 次" } ?: "账号")
+                { showAccount = true }, account?.let { if (it.optBoolean("member")) "会员" else "本周剩余 ${it.optInt("remaining")} / ${it.optInt("limit",5)} 次" } ?: "账号")
             else key(photo.id) { PhotoDetail(photo, vm) }
         }
         if (showAccount || loginRequired) AccountPanel(vm, required = loginRequired) { showAccount = false; vm.reconcilePending() }

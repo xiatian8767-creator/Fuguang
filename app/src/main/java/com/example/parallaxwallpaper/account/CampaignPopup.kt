@@ -7,11 +7,18 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -35,9 +42,9 @@ fun CampaignPopup(config: JSONObject, onDisplayed: () -> Unit, onClose: () -> Un
     fun report() { if (!reported) { reported = true; onDisplayed() } }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.width((screen.screenWidthDp * config.optInt("width",88) / 100).dp)
-            .heightIn(max = (screen.screenHeightDp * config.optInt("height",75) / 100).dp), shape = MaterialTheme.shapes.extraLarge) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(config.optString("title"), style = MaterialTheme.typography.titleLarge)
+            .height((screen.screenHeightDp * config.optInt("height",75) / 100).dp),
+            shape = RoundedCornerShape(22.dp), color = Color(0xFFF6F5F1)) {
+            Box(Modifier.fillMaxSize()) {
                 if (config.optString("mode") == "web" && official(url)) {
                     val web = remember(url) {
                         WebView(context).apply {
@@ -66,13 +73,22 @@ fun CampaignPopup(config: JSONObject, onDisplayed: () -> Unit, onClose: () -> Un
                         }
                     }
                     DisposableEffect(web) { onDispose { web.stopLoading(); web.destroy() } }
-                    AndroidView(factory = { web }, modifier = Modifier.fillMaxWidth().weight(1f, fill = false).height(380.dp))
+                    AndroidView(factory = { web }, modifier = Modifier.fillMaxSize())
                 } else {
                     LaunchedEffect(Unit) { report() }
-                    Text(config.optString("body"), modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()))
+                    Column(Modifier.fillMaxSize().padding(24.dp).padding(top = 36.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(config.optString("title"), style = MaterialTheme.typography.titleLarge, color = Color(0xFF283446))
+                        Text(config.optString("body"), modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()), color = Color(0xFF283446))
+                        if (official(url)) Button(onClick = { browse(url); onClose() }, modifier = Modifier.fillMaxWidth()) { Text(config.optString("button","立即更新")) }
+                    }
                 }
-                if (official(url)) Button(onClick = { browse(url); onClose() }, modifier = Modifier.fillMaxWidth()) { Text(config.optString("button","立即更新")) }
-                TextButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) { Text("稍后再说") }
+                Button(onClick = onClose,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).size(44.dp).semantics { contentDescription = "关闭活动" },
+                    shape = CircleShape, contentPadding = PaddingValues(0.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xEFFFFFFF), contentColor = Color(0xFF283446)),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)) {
+                    Text("×", fontSize = 25.sp)
+                }
             }
         }
     }

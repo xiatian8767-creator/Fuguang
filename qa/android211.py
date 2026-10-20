@@ -11,7 +11,7 @@ import httpx
 root=Path(__file__).resolve().parents[1]
 adb=r'C:\Users\15072\Desktop\TIM\test\toolchain\sdk\platform-tools\adb.exe'
 serial='emulator-5554'
-def cmd(*args): return subprocess.check_output([adb,'-s',serial,*args],stderr=subprocess.STDOUT)
+def cmd(*args): return subprocess.check_output([adb,'-s',serial,*args],stderr=subprocess.STDOUT,timeout=180)
 def nodes():
     cmd('shell','uiautomator','dump','/sdcard/fuguang-ui.xml')
     return list(ET.fromstring(cmd('exec-out','cat','/sdcard/fuguang-ui.xml')).iter('node'))
@@ -28,7 +28,7 @@ def find(text,contains=False,timeout=35):
     raise RuntimeError('UI not found: '+text)
 def screenshot(name): (root/'qa/output'/name).write_bytes(cmd('exec-out','screencap','-p'))
 apk=root/'dist/Fuguang-3D-Album-2.1.1-test.apk'
-result=cmd('install','-r',str(apk)).decode(errors='replace')
+result=cmd('install','--no-streaming','-r',str(apk)).decode(errors='replace')
 assert 'Success' in result,result
 cmd('shell','pm','clear','com.example.parallaxwallpaper')
 cmd('shell','am','start','-n','com.example.parallaxwallpaper/.MainActivity')
@@ -47,11 +47,11 @@ for index,value in enumerate([username,password]):
     cmd('shell','input','keyevent','111')
     time.sleep(0.4)
 tap(find('注册并登录'));find('浮光');screenshot('android211-home.png')
-find('本周剩余 10 / 10 次',contains=True)
+find('本周剩余 5 / 5 次',contains=True)
 tap(find('账号与会员',contains=True));find(username);screenshot('android211-account.png');tap(find('完成'))
 client=httpx.Client(base_url='https://fuguang.startimetable.xyz',timeout=30)
 adminpass=(root/'private/管理员凭据.txt').read_text(encoding='utf8').split('管理员密码：')[1].splitlines()[0]
-r=client.post('/api/admin/login',json={'password':adminpass});r.raise_for_status()
+r=client.post('/api/admin/login',json={'username':(root/'private/管理员凭据.txt').read_text(encoding='utf8').split('管理员账号：')[1].splitlines()[0],'password':adminpass});r.raise_for_status()
 headers={'X-CSRF-Token':r.json()['csrf']}
 r=client.get('/api/admin/users',params={'q':username});r.raise_for_status();uid=r.json()[0]['id']
 fixture={'uid':uid,'username':username}
@@ -60,12 +60,12 @@ config={'title':'浮光更新验收','body':'正式版更新弹窗展示测试',
 r=client.post('/api/admin/campaigns',json=config,headers=headers);r.raise_for_status();cid=r.json()['id'];fixture['campaign']=cid
 (root/'.local/android211-fixture.json').write_text(json.dumps(fixture))
 cmd('shell','am','force-stop','com.example.parallaxwallpaper');cmd('shell','am','start','-n','com.example.parallaxwallpaper/.MainActivity')
-find('浮光更新验收');screenshot('android211-update-popup.png');tap(find('稍后再说'))
+find('浮光更新验收');screenshot('android211-update-popup.png');tap(find('关闭活动'))
 time.sleep(1)
 webconfig=config|{'title':'浮光更新网页验收','mode':'web','frequency':'always','url':'https://fuguang.startimetable.xyz/updates/2.1.1/'}
 client.put('/api/admin/campaigns/'+cid,json=webconfig|{'revision':1},headers=headers).raise_for_status()
 cmd('shell','am','force-stop','com.example.parallaxwallpaper');cmd('shell','am','start','-n','com.example.parallaxwallpaper/.MainActivity')
-find('浮光更新网页验收');find('每周',contains=True);screenshot('android211-update-web.png');tap(find('稍后再说'))
+find('2.1.1 更新');find('每周',contains=True);screenshot('android211-update-web.png');tap(find('关闭活动'))
 client.put('/api/admin/campaigns/'+cid,json=webconfig|{'revision':2,'enabled':False},headers=headers).raise_for_status()
 client.patch('/api/admin/users/'+uid,json={'plan':'month'},headers=headers).raise_for_status()
 tap(find('账号与会员',contains=True));find('会员有效至',contains=True);screenshot('android211-member.png');tap(find('完成'))

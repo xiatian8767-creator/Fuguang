@@ -36,7 +36,7 @@ fun AccountPanel(vm: SetupViewModel, required: Boolean = false, onClose: () -> U
                 } else {
                     Text(current.optString("username"), style = MaterialTheme.typography.titleMedium)
                     val expiry = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).apply { timeZone = TimeZone.getTimeZone("Asia/Shanghai") }.format(Date(current.optLong("expires") * 1000))
-                    Text(if (current.optInt("lifetime") == 1) "永久会员" else if (current.optBoolean("member")) "会员有效至 $expiry" else "本周剩余 ${current.optInt("remaining")} / 10 次")
+                    Text(if (current.optInt("lifetime") == 1) "永久会员" else if (current.optBoolean("member")) "会员有效至 $expiry" else "本周剩余 ${current.optInt("remaining")} / ${current.optInt("limit",5)} 次")
                     Text("月卡 ¥1.99 · 年卡 ¥19.99 · 永久卡 ¥29.99")
                     OutlinedTextField(code, { code = it }, label = { Text("会员兑换码") }, singleLine = true, enabled = !waiting)
                     Button(onClick = { vm.redeem(code); code = "" }, enabled = !waiting && code.isNotBlank()) { Text("兑换会员") }

@@ -21,13 +21,24 @@ class Entitlements(unittest.TestCase):
                 c.execute('DELETE FROM '+table)
         self.client=TestClient(service.app)
         self.admin=TestClient(service.app)
+        os.environ['FUGUANG_ADMIN_USERNAME']='admin'
         os.environ['FUGUANG_ADMIN_HASH']=service.password_hash('admin-test-password')
-        response=self.admin.post('/api/admin/login',json={'password':'admin-test-password'})
+        response=self.admin.post('/api/admin/login',json={'username':'admin','password':'admin-test-password'})
         self.csrf={'X-CSRF-Token':response.json()['csrf']}
         r=self.client.post('/api/register',json={'username':'testuser','password':'password123'})
         self.assertEqual(r.status_code,200,r.text)
         self.auth={'Authorization':'Bearer '+r.json()['token']}
         self.uid=r.json()['user']['id']
+
+    def test_admin_requires_matching_username_and_password(self):
+        for payload in [
+            {'username':'wrong','password':'admin-test-password'},
+            {'username':'admin','password':'wrong'},
+        ]:
+            response=self.client.post('/api/admin/login',json=payload)
+            self.assertEqual(response.status_code,401)
+            self.assertNotIn('fg_admin',response.cookies)
+        self.assertEqual(self.client.post('/api/admin/login',json={'password':'admin-test-password'}).status_code,422)
 
     def reserve(self):
         job=str(uuid.uuid4())
@@ -36,12 +47,12 @@ class Entitlements(unittest.TestCase):
     def code(self,plan):
         return self.admin.post('/api/admin/codes',json={'plan':plan,'count':1},headers=self.csrf).json()['codes'][0]
 
-    def test_ten_successes_and_idempotency(self):
-        for i in range(10):
+    def test_five_successes_and_idempotency(self):
+        for i in range(5):
             job,r=self.reserve(); self.assertEqual(r.status_code,200,r.text)
             for _ in range(2): self.assertEqual(self.client.post(f'/api/generations/{job}/commit',json={},headers=self.auth).status_code,200)
         self.assertEqual(self.reserve()[1].status_code,403)
-        self.assertEqual(self.client.get('/api/me',headers=self.auth).json()['used'],10)
+        self.assertEqual(self.client.get('/api/me',headers=self.auth).json()['used'],5)
 
     def test_failures_release_and_concurrent_cap(self):
         job,_=self.reserve()
@@ -49,12 +60,12 @@ class Entitlements(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=8) as pool:
             results=list(pool.map(lambda _:self.reserve(),range(8)))
         self.assertEqual(sum(r.status_code==200 for _,r in results),3)
-        self.assertEqual(self.client.get('/api/me',headers=self.auth).json()['remaining'],7)
+        self.assertEqual(self.client.get('/api/me',headers=self.auth).json()['remaining'],2)
 
     def test_week_reset_and_expiry(self):
         job,_=self.reserve(); self.client.post(f'/api/generations/{job}/commit',json={},headers=self.auth)
         with patch.object(service,'week_key',return_value='2099-01-05'):
-            self.assertEqual(self.client.get('/api/me',headers=self.auth).json()['remaining'],10)
+            self.assertEqual(self.client.get('/api/me',headers=self.auth).json()['remaining'],5)
         with service.db() as c: c.execute('UPDATE users SET expires=? WHERE id=?',(service.now()-1,self.uid))
         self.assertFalse(self.client.get('/api/me',headers=self.auth).json()['member'])
 
@@ -68,7 +79,7 @@ class Entitlements(unittest.TestCase):
             c.execute("INSERT INTO jobs VALUES(?,?,?,'done',?,1)",(str(uuid.uuid4()),self.uid,service.month(),service.now()))
         service.initialize()
         self.assertEqual(self.client.get('/api/me',headers=self.auth).json()['used'],1)
-        self.assertEqual(self.client.get('/api/me',headers=self.auth).json()['remaining'],9)
+        self.assertEqual(self.client.get('/api/me',headers=self.auth).json()['remaining'],4)
 
     def test_code_single_use_stacking_and_lifetime(self):
         code=self.code('month')

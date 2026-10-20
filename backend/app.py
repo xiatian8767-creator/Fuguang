@@ -21,7 +21,16 @@ from pydantic import BaseModel, Field
 DB = os.getenv("FUGUANG_DB", "backend/data/fuguang.sqlite3")
 ROOT = Path(__file__).resolve().parent
 TZ = timezone(timedelta(hours=8))
+FREE_WEEKLY_LIMIT = 5
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.middleware("http")
+async def admin_no_cache(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == '/admin' or request.url.path.startswith('/admin/'):
+        response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @contextmanager
@@ -121,7 +130,7 @@ def admin(request: Request):
 def profile(c, user):
     used = c.execute("SELECT count(*) FROM jobs WHERE uid=? AND week=? AND state='done' AND charged=1", (user["id"],week_key())).fetchone()[0]
     pending = c.execute("SELECT count(*) FROM jobs WHERE uid=? AND week=? AND state='pending' AND charged=1 AND created>?", (user["id"],week_key(),now()-1800)).fetchone()[0]
-    return {k: user[k] for k in ("id","username","expires","lifetime","disabled")} | {"member":member(user),"month":month(),"week":week_key(),"used":used,"remaining":max(0,10-used-pending),"limit":10}
+    return {k: user[k] for k in ("id","username","expires","lifetime","disabled")} | {"member":member(user),"month":month(),"week":week_key(),"used":used,"remaining":max(0,FREE_WEEKLY_LIMIT-used-pending),"limit":FREE_WEEKLY_LIMIT}
 
 
 class Credentials(BaseModel):
@@ -231,14 +240,18 @@ def finish(job_id: str, action: str, user=Depends(current)):
     return {"ok":True}
 
 
-class AdminCredentials(BaseModel): password: str = Field(min_length=1,max_length=128)
+class AdminCredentials(BaseModel):
+    username: str = Field(min_length=1,max_length=128)
+    password: str = Field(min_length=1,max_length=128)
 
 
 @app.post("/api/admin/login")
 def admin_login(data: AdminCredentials, request: Request):
     limit(request,"admin-login",10)
     stored = os.getenv("FUGUANG_ADMIN_HASH", "")
-    if not stored or not password_ok(data.password,stored): raise HTTPException(401,"管理员密码不正确")
+    valid_password = bool(stored) and password_ok(data.password,stored)
+    valid_username = hmac.compare_digest(data.username.encode(),os.getenv("FUGUANG_ADMIN_USERNAME","admin").encode())
+    if not valid_password or not valid_username: raise HTTPException(401,"管理员账号或密码不正确")
     token, csrf = secrets.token_urlsafe(32),secrets.token_urlsafe(24)
     with db() as c:
         c.execute("DELETE FROM adminsessions WHERE expires<?",(now(),))

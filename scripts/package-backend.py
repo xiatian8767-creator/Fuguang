@@ -12,8 +12,8 @@ if not env.exists():
     password=secrets.token_urlsafe(24)
     salt=secrets.token_hex(16)
     hashed=salt+':'+hashlib.scrypt(password.encode(),salt=salt.encode(),n=16384,r=8,p=1).hex()
-    env.write_text('FUGUANG_ADMIN_HASH='+hashed+'\n')
-    (private/'管理员凭据.txt').write_text('浮光管理后台\nhttps://fuguang.startimetable.xyz/admin/\n管理员密码：'+password+'\n请妥善保存，不要提交Git或公开分享。\n',encoding='utf-8')
+    env.write_text('FUGUANG_ADMIN_USERNAME=admin\nFUGUANG_ADMIN_HASH='+hashed+'\n')
+    (private/'管理员凭据.txt').write_text('浮光管理后台\nhttps://fuguang.startimetable.xyz/admin/\n管理员账号：admin\n管理员密码：'+password+'\n请妥善保存，不要提交Git或公开分享。\n',encoding='utf-8')
 archive=root/'.local/fuguang-deploy.tar.gz'
 with tarfile.open(archive,'w:gz') as tar:
     for name in ['backend','deploy','compose.yaml']:
